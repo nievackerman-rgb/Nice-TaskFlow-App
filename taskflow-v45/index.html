@@ -3733,6 +3733,184 @@ async function createFirebaseHistoryBackup() {
     html.dark .nlp-input, html.dark .nlp-workspace-select, html.dark .nlp-result { background: #1a1a25; }
     
     /* ============================================ */
+    /* IMPROVEMENT AGENT STYLES                     */
+    /* ============================================ */
+    
+    #improve-agent-btn {
+        position: fixed; bottom: 30px; right: 170px;
+        width: 60px; height: 60px;
+        background: linear-gradient(135deg, #f59e0b, #ef4444);
+        color: white;
+        border-radius: 50%;
+        box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 24px; cursor: pointer; transition: all 0.3s;
+        z-index: 50; border: none;
+    }
+    #improve-agent-btn:hover { transform: scale(1.1); box-shadow: 0 6px 30px rgba(245, 158, 11, 0.6); }
+    
+    #improve-agent-panel {
+        position: fixed; bottom: 100px; right: 170px;
+        width: 450px; max-height: 600px;
+        background: #12121a;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        display: none; flex-direction: column;
+        z-index: 100; border: 1px solid rgba(245, 158, 11, 0.3);
+        overflow: hidden;
+        font-family: system-ui, -apple-system, sans-serif;
+    }
+    #improve-agent-panel.open { display: flex; animation: slideUp 0.3s ease-out; }
+    
+    .improve-header {
+        background: linear-gradient(135deg, #f59e0b, #ef4444);
+        padding: 16px;
+        display: flex; justify-content: space-between; align-items: center;
+        color: white;
+    }
+    .improve-header h3 { font-size: 16px; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 8px; }
+    
+    .improve-body { padding: 16px; overflow-y: auto; color: #f1f5f9; max-height: 500px; }
+    
+    .improve-section {
+        background: #1a1a25;
+        border: 1px solid #374151;
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 12px;
+    }
+    .improve-section-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #f59e0b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .improve-item {
+        padding: 10px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px;
+        margin-bottom: 8px;
+        border-left: 3px solid #374151;
+        transition: all 0.2s;
+    }
+    .improve-item:hover {
+        background: rgba(255,255,255,0.06);
+        border-left-color: #f59e0b;
+    }
+    .improve-item:last-child { margin-bottom: 0; }
+    
+    .improve-item-title {
+        font-weight: 500;
+        color: #f1f5f9;
+        font-size: 13px;
+        margin-bottom: 4px;
+    }
+    .improve-item-desc {
+        font-size: 12px;
+        color: #94a3b8;
+        line-height: 1.4;
+    }
+    .improve-item-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+    }
+    .improve-item-btn {
+        padding: 4px 10px;
+        font-size: 11px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: none;
+    }
+    .improve-item-btn-primary {
+        background: rgba(245, 158, 11, 0.2);
+        color: #f59e0b;
+    }
+    .improve-item-btn-primary:hover {
+        background: rgba(245, 158, 11, 0.3);
+    }
+    .improve-item-btn-secondary {
+        background: rgba(255,255,255,0.05);
+        color: #94a3b8;
+    }
+    .improve-item-btn-secondary:hover {
+        background: rgba(255,255,255,0.1);
+    }
+    
+    .improve-stat {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+        font-size: 13px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .improve-stat:last-child { border-bottom: none; }
+    .improve-stat-label { color: #94a3b8; }
+    .improve-stat-value { color: #f1f5f9; font-weight: 500; }
+    .improve-stat-value.warning { color: #f59e0b; }
+    .improve-stat-value.danger { color: #ef4444; }
+    .improve-stat-value.success { color: #10b981; }
+    
+    .improve-ask-input {
+        width: 100%;
+        padding: 10px 12px;
+        background: #1a1a25;
+        border: 1px solid #374151;
+        border-radius: 8px;
+        color: #f1f5f9;
+        font-size: 13px;
+        margin-bottom: 8px;
+    }
+    .improve-ask-input:focus {
+        outline: none;
+        border-color: #f59e0b;
+    }
+    .improve-ask-input::placeholder { color: #6b7280; }
+    
+    .improve-wishlist-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 6px;
+        margin-bottom: 6px;
+        font-size: 12px;
+    }
+    .improve-wishlist-item span { color: #f1f5f9; }
+    .improve-wishlist-remove {
+        background: none;
+        border: none;
+        color: #ef4444;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 14px;
+    }
+    
+    .improve-analyze-btn {
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #f59e0b, #ef4444);
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s;
+        margin-bottom: 12px;
+    }
+    .improve-analyze-btn:hover { opacity: 0.9; }
+    .improve-analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    /* ============================================ */
     /* DARK MODE STYLES                            */
     /* ============================================ */
     
@@ -25954,6 +26132,530 @@ Return clean JSON only.`;
     document.addEventListener('DOMContentLoaded', () => {
       setTimeout(initNlpVoice, 1000);
     });
+  </script>
+
+  <!-- ============================================ -->
+  <!-- IMPROVEMENT AGENT - App Enhancement Ideas    -->
+  <!-- ============================================ -->
+  
+  <!-- Improvement Agent Floating Button -->
+  <button id="improve-agent-btn" onclick="toggleImproveAgent()" title="App Improvement Ideas">
+    <i class="fas fa-lightbulb"></i>
+  </button>
+  
+  <!-- Improvement Agent Panel -->
+  <div id="improve-agent-panel">
+    <div class="improve-header">
+      <h3><i class="fas fa-lightbulb"></i> App Improvement Agent</h3>
+      <button class="nlp-close" onclick="toggleImproveAgent()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div class="improve-body">
+      
+      <!-- Analyze Button -->
+      <button class="improve-analyze-btn" onclick="analyzeAppUsage()" id="improve-analyze-btn">
+        <i class="fas fa-search"></i> Analyze My TaskFlow
+      </button>
+      
+      <!-- Loading -->
+      <div id="improve-loading" style="display: none; text-align: center; padding: 30px; color: #94a3b8;">
+        <div class="nlp-dots"><span></span><span></span><span></span></div>
+        <div style="margin-top: 10px;">Analyzing your usage patterns...</div>
+      </div>
+      
+      <!-- Results Container -->
+      <div id="improve-results" style="display: none;">
+        
+        <!-- Usage Stats -->
+        <div class="improve-section" id="improve-stats-section">
+          <div class="improve-section-title">
+            <i class="fas fa-chart-bar"></i> Usage Statistics
+          </div>
+          <div id="improve-stats"></div>
+        </div>
+        
+        <!-- Issues Found -->
+        <div class="improve-section" id="improve-issues-section">
+          <div class="improve-section-title">
+            <i class="fas fa-exclamation-triangle"></i> Issues Found
+          </div>
+          <div id="improve-issues"></div>
+        </div>
+        
+        <!-- Feature Suggestions -->
+        <div class="improve-section" id="improve-features-section">
+          <div class="improve-section-title">
+            <i class="fas fa-rocket"></i> Feature Suggestions
+          </div>
+          <div id="improve-features"></div>
+        </div>
+        
+        <!-- AI Suggestions -->
+        <div class="improve-section" id="improve-ai-section">
+          <div class="improve-section-title">
+            <i class="fas fa-brain"></i> AI Insights
+          </div>
+          <div id="improve-ai-insights"></div>
+        </div>
+        
+      </div>
+      
+      <!-- Ask AI -->
+      <div class="improve-section">
+        <div class="improve-section-title">
+          <i class="fas fa-comments"></i> Ask AI for Ideas
+        </div>
+        <input type="text" class="improve-ask-input" id="improve-ask-input" 
+          placeholder="e.g., How can I make monthly closing easier?"
+          onkeydown="if(event.key==='Enter') askImproveAI();">
+        <button class="improve-analyze-btn" onclick="askImproveAI()" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6);">
+          <i class="fas fa-paper-plane"></i> Ask AI
+        </button>
+        <div id="improve-ai-response" style="display: none; margin-top: 12px; padding: 12px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; font-size: 13px; line-height: 1.5;"></div>
+      </div>
+      
+      <!-- Wishlist -->
+      <div class="improve-section">
+        <div class="improve-section-title">
+          <i class="fas fa-star"></i> My Wishlist
+          <span id="improve-wishlist-count" style="margin-left: auto; font-size: 11px; color: #94a3b8;"></span>
+        </div>
+        <div id="improve-wishlist"></div>
+        <input type="text" class="improve-ask-input" id="improve-wishlist-input" 
+          placeholder="Add a feature idea..."
+          onkeydown="if(event.key==='Enter') addToWishlist();">
+        <div style="display: flex; gap: 8px;">
+          <button class="improve-item-btn improve-item-btn-primary" onclick="addToWishlist()" style="flex: 1; padding: 8px;">
+            <i class="fas fa-plus"></i> Add to Wishlist
+          </button>
+          <button class="improve-item-btn improve-item-btn-secondary" onclick="exportWishlist()" style="padding: 8px;">
+            <i class="fas fa-download"></i> Export
+          </button>
+        </div>
+      </div>
+      
+    </div>
+  </div>
+  
+  <!-- Improvement Agent JavaScript -->
+  <script>
+    // ============================================
+    // IMPROVEMENT AGENT STATE
+    // ============================================
+    let improveAgentOpen = false;
+    let improveWishlist = JSON.parse(localStorage.getItem('taskflow_wishlist') || '[]');
+    
+    // ============================================
+    // IMPROVEMENT AGENT FUNCTIONS
+    // ============================================
+    
+    function toggleImproveAgent() {
+      improveAgentOpen = !improveAgentOpen;
+      const panel = document.getElementById('improve-agent-panel');
+      if (improveAgentOpen) {
+        panel.classList.add('open');
+        renderWishlist();
+      } else {
+        panel.classList.remove('open');
+      }
+    }
+    
+    function analyzeAppUsage() {
+      const btn = document.getElementById('improve-analyze-btn');
+      btn.disabled = true;
+      document.getElementById('improve-loading').style.display = 'block';
+      document.getElementById('improve-results').style.display = 'none';
+      
+      // Simulate analysis delay
+      setTimeout(() => {
+        const analysis = performAnalysis();
+        displayAnalysisResults(analysis);
+        
+        btn.disabled = false;
+        document.getElementById('improve-loading').style.display = 'none';
+        document.getElementById('improve-results').style.display = 'block';
+      }, 1500);
+    }
+    
+    function performAnalysis() {
+      const tasks = state.tasks || [];
+      const employees = state.employees || [];
+      const labels = state.labels || [];
+      const projects = state.projects || [];
+      
+      // Calculate stats
+      const totalTasks = tasks.length;
+      const openTasks = tasks.filter(t => t.status === 'open').length;
+      const completedTasks = tasks.filter(t => t.status === 'done').length;
+      const overdueTasks = tasks.filter(t => {
+        if (!t.dueDate || t.status === 'done') return false;
+        return new Date(t.dueDate) < new Date();
+      }).length;
+      const tasksWithoutDueDate = tasks.filter(t => !t.dueDate && t.status === 'open').length;
+      const tasksWithoutAssignee = tasks.filter(t => (!t.assigneeIds || t.assigneeIds.length === 0) && t.status === 'open').length;
+      const activeEmployees = employees.filter(e => e.active).length;
+      const inactiveEmployees = employees.filter(e => !e.active).length;
+      
+      // Find issues
+      const issues = [];
+      
+      // Check for duplicate labels
+      const labelNames = labels.map(l => l.name.toLowerCase());
+      const duplicateLabels = labelNames.filter((name, idx) => labelNames.indexOf(name) !== idx);
+      if (duplicateLabels.length > 0) {
+        issues.push({
+          title: 'Duplicate labels found',
+          desc: `Labels "${[...new Set(duplicateLabels)].join(', ')}" appear multiple times with different cases.`,
+          action: 'Merge duplicates',
+          type: 'warning'
+        });
+      }
+      
+      // Check for tasks assigned to inactive employees
+      const inactiveIds = employees.filter(e => !e.active).map(e => e.id);
+      const tasksToInactive = tasks.filter(t => 
+        t.status === 'open' && 
+        t.assigneeIds && 
+        t.assigneeIds.some(id => inactiveIds.includes(id))
+      ).length;
+      if (tasksToInactive > 0) {
+        issues.push({
+          title: `${tasksToInactive} tasks assigned to inactive users`,
+          desc: 'These tasks may never be completed.',
+          action: 'Reassign tasks',
+          type: 'danger'
+        });
+      }
+      
+      // High overdue rate
+      if (overdueTasks > openTasks * 0.3 && overdueTasks > 3) {
+        issues.push({
+          title: `${overdueTasks} overdue tasks (${Math.round(overdueTasks/openTasks*100)}%)`,
+          desc: 'High overdue rate suggests workload or deadline issues.',
+          action: 'Review priorities',
+          type: 'danger'
+        });
+      }
+      
+      // Many tasks without due dates
+      if (tasksWithoutDueDate > openTasks * 0.4 && tasksWithoutDueDate > 5) {
+        issues.push({
+          title: `${tasksWithoutDueDate} tasks have no due date`,
+          desc: 'Tasks without deadlines tend to be forgotten.',
+          action: 'Set due dates',
+          type: 'warning'
+        });
+      }
+      
+      // Unassigned tasks
+      if (tasksWithoutAssignee > 5) {
+        issues.push({
+          title: `${tasksWithoutAssignee} tasks are unassigned`,
+          desc: 'Unassigned tasks have no clear owner.',
+          action: 'Assign owners',
+          type: 'warning'
+        });
+      }
+      
+      // Feature suggestions based on usage
+      const features = [];
+      
+      if (totalTasks > 50) {
+        features.push({
+          title: 'Task archiving',
+          desc: 'You have many tasks. Auto-archive completed tasks older than 30 days to improve performance.',
+          priority: 'high'
+        });
+      }
+      
+      if (activeEmployees >= 3) {
+        features.push({
+          title: 'Workload dashboard',
+          desc: 'With a team of ' + activeEmployees + ', a visual workload distribution chart would help balance tasks.',
+          priority: 'high'
+        });
+      }
+      
+      if (labels.length > 10) {
+        features.push({
+          title: 'Label groups / categories',
+          desc: 'You have ' + labels.length + ' labels. Grouping them would make filtering easier.',
+          priority: 'medium'
+        });
+      }
+      
+      if (!tasks.some(t => t.subtasks && t.subtasks.length > 0)) {
+        features.push({
+          title: 'Subtask templates',
+          desc: 'Create reusable subtask checklists for recurring processes like monthly closing.',
+          priority: 'medium'
+        });
+      }
+      
+      features.push({
+        title: 'Keyboard shortcuts',
+        desc: 'Quick actions like "N" for new task, "D" for done would speed up your workflow.',
+        priority: 'low'
+      });
+      
+      features.push({
+        title: 'Time tracking',
+        desc: 'Track time spent on tasks for better estimation and billing.',
+        priority: 'low'
+      });
+      
+      return {
+        stats: {
+          totalTasks,
+          openTasks,
+          completedTasks,
+          overdueTasks,
+          tasksWithoutDueDate,
+          tasksWithoutAssignee,
+          totalEmployees: employees.length,
+          activeEmployees,
+          inactiveEmployees,
+          totalLabels: labels.length,
+          totalProjects: projects.length,
+          completionRate: totalTasks > 0 ? Math.round(completedTasks / totalTasks * 100) : 0
+        },
+        issues,
+        features
+      };
+    }
+    
+    function displayAnalysisResults(analysis) {
+      // Stats
+      const statsHtml = `
+        <div class="improve-stat">
+          <span class="improve-stat-label">Total Tasks</span>
+          <span class="improve-stat-value">${analysis.stats.totalTasks}</span>
+        </div>
+        <div class="improve-stat">
+          <span class="improve-stat-label">Open / Completed</span>
+          <span class="improve-stat-value">${analysis.stats.openTasks} / ${analysis.stats.completedTasks}</span>
+        </div>
+        <div class="improve-stat">
+          <span class="improve-stat-label">Completion Rate</span>
+          <span class="improve-stat-value ${analysis.stats.completionRate > 70 ? 'success' : analysis.stats.completionRate > 40 ? 'warning' : 'danger'}">${analysis.stats.completionRate}%</span>
+        </div>
+        <div class="improve-stat">
+          <span class="improve-stat-label">Overdue Tasks</span>
+          <span class="improve-stat-value ${analysis.stats.overdueTasks > 0 ? 'danger' : 'success'}">${analysis.stats.overdueTasks}</span>
+        </div>
+        <div class="improve-stat">
+          <span class="improve-stat-label">Team Members</span>
+          <span class="improve-stat-value">${analysis.stats.activeEmployees} active${analysis.stats.inactiveEmployees > 0 ? ', ' + analysis.stats.inactiveEmployees + ' inactive' : ''}</span>
+        </div>
+        <div class="improve-stat">
+          <span class="improve-stat-label">Labels / Projects</span>
+          <span class="improve-stat-value">${analysis.stats.totalLabels} / ${analysis.stats.totalProjects}</span>
+        </div>
+      `;
+      document.getElementById('improve-stats').innerHTML = statsHtml;
+      
+      // Issues
+      const issuesSection = document.getElementById('improve-issues-section');
+      if (analysis.issues.length === 0) {
+        issuesSection.style.display = 'none';
+      } else {
+        issuesSection.style.display = 'block';
+        const issuesHtml = analysis.issues.map(issue => `
+          <div class="improve-item" style="border-left-color: ${issue.type === 'danger' ? '#ef4444' : '#f59e0b'};">
+            <div class="improve-item-title">${issue.title}</div>
+            <div class="improve-item-desc">${issue.desc}</div>
+            <div class="improve-item-actions">
+              <button class="improve-item-btn improve-item-btn-primary" onclick="addToWishlistDirect('Fix: ${issue.title}')">${issue.action}</button>
+            </div>
+          </div>
+        `).join('');
+        document.getElementById('improve-issues').innerHTML = issuesHtml;
+      }
+      
+      // Features
+      const featuresHtml = analysis.features.map(feature => `
+        <div class="improve-item">
+          <div class="improve-item-title">
+            ${feature.title}
+            <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px;
+              background: ${feature.priority === 'high' ? 'rgba(239, 68, 68, 0.2)' : feature.priority === 'medium' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(107, 114, 128, 0.2)'};
+              color: ${feature.priority === 'high' ? '#ef4444' : feature.priority === 'medium' ? '#f59e0b' : '#6b7280'};">
+              ${feature.priority}
+            </span>
+          </div>
+          <div class="improve-item-desc">${feature.desc}</div>
+          <div class="improve-item-actions">
+            <button class="improve-item-btn improve-item-btn-primary" onclick="addToWishlistDirect('${feature.title}')">
+              <i class="fas fa-star"></i> Add to Wishlist
+            </button>
+          </div>
+        </div>
+      `).join('');
+      document.getElementById('improve-features').innerHTML = featuresHtml;
+      
+      // AI Insights
+      generateAIInsights(analysis);
+    }
+    
+    async function generateAIInsights(analysis) {
+      const insightsDiv = document.getElementById('improve-ai-insights');
+      insightsDiv.innerHTML = '<div style="color: #94a3b8; font-size: 12px;"><i class="fas fa-spinner fa-spin"></i> Generating AI insights...</div>';
+      
+      try {
+        const prompt = `Analyze this TaskFlow app usage and give 2-3 short, specific improvement suggestions:
+
+Stats:
+- ${analysis.stats.totalTasks} total tasks, ${analysis.stats.openTasks} open, ${analysis.stats.overdueTasks} overdue
+- ${analysis.stats.completionRate}% completion rate
+- ${analysis.stats.activeEmployees} active team members
+- ${analysis.stats.tasksWithoutDueDate} tasks without due dates
+- ${analysis.stats.totalLabels} labels, ${analysis.stats.totalProjects} projects
+
+Issues found: ${analysis.issues.map(i => i.title).join(', ') || 'None'}
+
+Give 2-3 brief, actionable suggestions (1-2 sentences each). Focus on workflow improvements, not technical features. Format as bullet points.`;
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 300,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        });
+        
+        const data = await response.json();
+        const text = data.content?.[0]?.text || 'Unable to generate insights.';
+        
+        insightsDiv.innerHTML = `<div style="font-size: 13px; line-height: 1.6; color: #e2e8f0;">${text.replace(/\n/g, '<br>')}</div>`;
+        
+      } catch (error) {
+        console.error('AI insights error:', error);
+        insightsDiv.innerHTML = `<div style="font-size: 13px; color: #94a3b8;">
+          Based on your data:<br>
+          • ${analysis.stats.overdueTasks > 0 ? 'Focus on clearing ' + analysis.stats.overdueTasks + ' overdue tasks first' : 'Great job keeping tasks on track!'}<br>
+          • ${analysis.stats.tasksWithoutDueDate > 5 ? 'Set due dates for open tasks to improve visibility' : 'Good due date coverage'}<br>
+          • ${analysis.stats.activeEmployees >= 3 ? 'Consider weekly team standups to review workload' : 'Keep tracking your progress'}
+        </div>`;
+      }
+    }
+    
+    async function askImproveAI() {
+      const input = document.getElementById('improve-ask-input');
+      const question = input.value.trim();
+      if (!question) return;
+      
+      const responseDiv = document.getElementById('improve-ai-response');
+      responseDiv.style.display = 'block';
+      responseDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Thinking...';
+      
+      try {
+        const stats = performAnalysis().stats;
+        
+        const prompt = `You are an expert in task management and productivity apps. The user has a TaskFlow app with:
+- ${stats.totalTasks} tasks (${stats.openTasks} open, ${stats.overdueTasks} overdue)
+- ${stats.activeEmployees} team members
+- ${stats.totalLabels} labels, ${stats.totalProjects} projects
+- Used for finance/accounting work with monthly closing processes
+
+User question: "${question}"
+
+Give a helpful, specific answer in 2-4 sentences. Focus on practical suggestions they could implement.`;
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 300,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        });
+        
+        const data = await response.json();
+        const text = data.content?.[0]?.text || 'Unable to generate response.';
+        
+        responseDiv.innerHTML = text;
+        input.value = '';
+        
+      } catch (error) {
+        console.error('AI ask error:', error);
+        responseDiv.innerHTML = 'Sorry, I couldn\'t process that question. Try asking about workflows, features, or productivity tips.';
+      }
+    }
+    
+    // Wishlist functions
+    function renderWishlist() {
+      const container = document.getElementById('improve-wishlist');
+      const countEl = document.getElementById('improve-wishlist-count');
+      
+      countEl.textContent = improveWishlist.length + ' items';
+      
+      if (improveWishlist.length === 0) {
+        container.innerHTML = '<div style="font-size: 12px; color: #6b7280; padding: 10px; text-align: center;">No items yet. Add your feature ideas!</div>';
+        return;
+      }
+      
+      container.innerHTML = improveWishlist.map((item, idx) => `
+        <div class="improve-wishlist-item">
+          <span>${item}</span>
+          <button class="improve-wishlist-remove" onclick="removeFromWishlist(${idx})">×</button>
+        </div>
+      `).join('');
+    }
+    
+    function addToWishlist() {
+      const input = document.getElementById('improve-wishlist-input');
+      const item = input.value.trim();
+      if (!item) return;
+      
+      improveWishlist.push(item);
+      localStorage.setItem('taskflow_wishlist', JSON.stringify(improveWishlist));
+      input.value = '';
+      renderWishlist();
+      showToast('Added to wishlist!', 'success');
+    }
+    
+    function addToWishlistDirect(item) {
+      if (improveWishlist.includes(item)) {
+        showToast('Already in wishlist', 'info');
+        return;
+      }
+      improveWishlist.push(item);
+      localStorage.setItem('taskflow_wishlist', JSON.stringify(improveWishlist));
+      renderWishlist();
+      showToast('Added to wishlist!', 'success');
+    }
+    
+    function removeFromWishlist(idx) {
+      improveWishlist.splice(idx, 1);
+      localStorage.setItem('taskflow_wishlist', JSON.stringify(improveWishlist));
+      renderWishlist();
+    }
+    
+    function exportWishlist() {
+      if (improveWishlist.length === 0) {
+        showToast('Wishlist is empty', 'info');
+        return;
+      }
+      
+      const text = 'TaskFlow Wishlist\n' + 
+        '=================\n\n' +
+        improveWishlist.map((item, idx) => `${idx + 1}. ${item}`).join('\n') +
+        '\n\nExported: ' + new Date().toLocaleString();
+      
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'taskflow-wishlist.txt';
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      showToast('Wishlist exported!', 'success');
+    }
   </script>
 </body>
 </html>

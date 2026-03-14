@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taskflow-v45-nlp-enhanced';
+const CACHE_NAME = 'taskflow-v45-with-agents';
 const urlsToCache = [
   '/',
   '/index.html',
