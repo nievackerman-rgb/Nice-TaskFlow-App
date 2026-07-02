@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -19,9 +19,10 @@
   <link rel="icon" type="image/svg+xml" href="icon-192.svg">
   <link rel="apple-touch-icon" href="icon-192.svg">
 
-  <!-- Firebase SDK (Database only - no Auth needed) -->
+  <!-- Firebase SDK (Database + Auth) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   
   <!-- SortableJS for drag & drop -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
@@ -43,6 +44,13 @@
     
     // ✅ Firebase is now ENABLED
     const FIREBASE_ENABLED = true;
+
+    // 🔐 Master switch for the email/password login gate + membership rules.
+    // false = original behaviour (no forced login, pick-a-name user select).
+    // Set to true ONLY after you have: enabled Email/Password in Firebase Auth,
+    // published database.rules.json, and done the one-time seeding
+    // (see SECURITY-SETUP.md). Turning this on without those steps locks users out.
+    const AUTH_ENABLED = false;
     
     // ============================================================
     // MULTI-WORKSPACE SYSTEM
@@ -995,10 +1003,21 @@
       showToast(`Welcome, ${user.name}!`, 'success');
     }
     
-    // Logout current user (Admin only can switch users)
-    function logoutUser() {
-      if (!isAdmin()) {
-        showToast('Only admin can switch users', 'error');
+    // Logout current user. With the login gate ON each person has their own
+    // Firebase account, so anyone can sign out. With it OFF, keep the original
+    // behaviour (admin-only switch back to the user-select screen).
+    async function logoutUser() {
+      if (!AUTH_ENABLED) {
+        if (!isAdmin()) {
+          showToast('Only admin can switch users', 'error');
+          return;
+        }
+        currentUser = null;
+        localStorage.removeItem('taskflow_current_user');
+        if (WORKSPACE_ID) {
+          localStorage.removeItem(`taskflow_user_${WORKSPACE_ID}`);
+        }
+        showUserSelectScreen();
         return;
       }
       currentUser = null;
@@ -1006,7 +1025,9 @@
       if (WORKSPACE_ID) {
         localStorage.removeItem(`taskflow_user_${WORKSPACE_ID}`);
       }
-      showUserSelectScreen();
+      // Sign out of Firebase Auth and reload so the auth gate reappears.
+      await signOutOfFirebase();
+      window.location.reload();
     }
     
     // Switch to different user (Admin only)
@@ -1578,6 +1599,8 @@
     
     let firebaseApp = null;
     let firebaseDB = null;
+    let firebaseAuth = null;        // Firebase Auth instance
+    let firebaseAuthUser = null;    // Signed-in Firebase user (auth identity)
     let firebaseConnected = false;
 
     // Sync safety flags
@@ -1607,9 +1630,10 @@
       try {
         firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
         firebaseDB = firebase.database();
+        firebaseAuth = firebase.auth();
         firebaseConnected = true;
         console.log("✅ Firebase connected!");
-        
+
         return true;
       } catch (err) {
         console.error("Firebase init failed:", err);
@@ -1617,6 +1641,281 @@
       }
     }
     
+    // ============================================================
+    // 🔐 FIREBASE AUTH GATE (email / password)
+    // Added to enforce real server-side security. The database rules
+    // require a signed-in user; this gate guarantees we authenticate
+    // BEFORE any database read/write happens.
+    // ============================================================
+
+    // Show the login / register screen and resolve once the user is
+    // authenticated. Rejects only if Firebase Auth is unavailable.
+    function ensureSignedIn() {
+      return new Promise((resolve, reject) => {
+        if (!firebaseAuth) { reject(new Error('Auth not initialized')); return; }
+
+        // If a session already exists, use it.
+        const existing = firebaseAuth.currentUser;
+        if (existing) { firebaseAuthUser = existing; resolve(existing); return; }
+
+        // Otherwise render the gate and wait for sign-in.
+        renderAuthGate();
+        const unsub = firebaseAuth.onAuthStateChanged((user) => {
+          if (user) {
+            firebaseAuthUser = user;
+            unsub();
+            removeAuthGate();
+            resolve(user);
+          }
+        });
+      });
+    }
+
+    function removeAuthGate() {
+      const el = document.getElementById('auth-gate-screen');
+      if (el) el.remove();
+    }
+
+    function renderAuthGate(mode) {
+      removeAuthGate();
+      mode = mode || 'login'; // 'login' | 'register'
+      const isReg = mode === 'register';
+      const screen = document.createElement('div');
+      screen.id = 'auth-gate-screen';
+      screen.className = 'fixed inset-0 flex items-center justify-center z-[1000]';
+      screen.style.background = 'linear-gradient(135deg,#1f2937,#111827)';
+      screen.innerHTML = `
+        <div class="bg-white rounded-2xl p-8 w-full max-w-sm mx-4 shadow-2xl">
+          <div class="text-center mb-6">
+            <div class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3" style="background:#db4c3f">
+              <i class="fas fa-check text-white text-2xl"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-800">TaskFlow Pro</h2>
+            <p class="text-gray-500 text-sm mt-1">${isReg ? 'Create your account' : 'Sign in to continue'}</p>
+          </div>
+          ${isReg ? `
+          <div class="mb-3">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Your name</label>
+            <input type="text" id="auth-name" placeholder="Full name" autocomplete="name"
+                   class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-todoist-red focus:border-transparent outline-none">
+          </div>` : ''}
+          <div class="mb-3">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Email</label>
+            <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email"
+                   class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-todoist-red focus:border-transparent outline-none">
+          </div>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-600 mb-1">Password</label>
+            <input type="password" id="auth-password" placeholder="Password" autocomplete="${isReg ? 'new-password' : 'current-password'}"
+                   onkeydown="if(event.key==='Enter') submitAuthGate('${mode}')"
+                   class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-todoist-red focus:border-transparent outline-none">
+          </div>
+          <div id="auth-error" class="hidden text-red-500 text-sm text-center mb-3"></div>
+          <button onclick="submitAuthGate('${mode}')" id="auth-submit-btn"
+                  class="w-full py-2.5 px-4 bg-todoist-red text-white rounded-lg hover:bg-todoist-red-hover font-medium">
+            ${isReg ? 'Create account' : 'Sign in'}
+          </button>
+          ${isReg ? '' : `
+          <button onclick="sendAuthReset()" class="w-full mt-2 text-sm text-gray-500 hover:text-gray-700">Forgot password?</button>`}
+          <p class="text-center text-sm text-gray-500 mt-4">
+            ${isReg ? 'Already have an account?' : "Don't have an account?"}
+            <button onclick="renderAuthGate('${isReg ? 'login' : 'register'}')" class="text-todoist-red font-medium hover:underline">
+              ${isReg ? 'Sign in' : 'Register'}
+            </button>
+          </p>
+        </div>`;
+      document.body.appendChild(screen);
+      const f = document.getElementById(isReg ? 'auth-name' : 'auth-email');
+      if (f) f.focus();
+    }
+
+    function showAuthError(msg) {
+      const el = document.getElementById('auth-error');
+      if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+    }
+
+    async function submitAuthGate(mode) {
+      const email = (document.getElementById('auth-email')?.value || '').trim();
+      const password = document.getElementById('auth-password')?.value || '';
+      const name = (document.getElementById('auth-name')?.value || '').trim();
+      const btn = document.getElementById('auth-submit-btn');
+      if (!email || !password) { showAuthError('Email and password are required.'); return; }
+      if (mode === 'register' && !name) { showAuthError('Please enter your name.'); return; }
+      if (mode === 'register' && password.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Please wait…'; }
+      try {
+        if (mode === 'register') {
+          const cred = await firebaseAuth.createUserWithEmailAndPassword(email, password);
+          if (cred.user && name) {
+            try { await cred.user.updateProfile({ displayName: name }); } catch (e) {}
+          }
+        } else {
+          await firebaseAuth.signInWithEmailAndPassword(email, password);
+        }
+        // onAuthStateChanged in ensureSignedIn() resolves the gate.
+      } catch (err) {
+        if (btn) { btn.disabled = false; btn.textContent = (mode === 'register' ? 'Create account' : 'Sign in'); }
+        showAuthError(friendlyAuthError(err));
+      }
+    }
+
+    async function sendAuthReset() {
+      const email = (document.getElementById('auth-email')?.value || '').trim();
+      if (!email) { showAuthError('Enter your email above first, then tap reset.'); return; }
+      try {
+        await firebaseAuth.sendPasswordResetEmail(email);
+        showAuthError('Password reset email sent. Check your inbox.');
+      } catch (err) { showAuthError(friendlyAuthError(err)); }
+    }
+
+    function friendlyAuthError(err) {
+      const c = (err && err.code) || '';
+      if (c.includes('email-already-in-use')) return 'That email is already registered. Try signing in.';
+      if (c.includes('invalid-email')) return 'That email address looks invalid.';
+      if (c.includes('weak-password')) return 'Password is too weak (min 6 characters).';
+      if (c.includes('wrong-password') || c.includes('invalid-credential')) return 'Incorrect email or password.';
+      if (c.includes('user-not-found')) return 'No account found for that email. Try registering.';
+      if (c.includes('too-many-requests')) return 'Too many attempts. Please wait and try again.';
+      if (c.includes('network')) return 'Network error. Check your connection.';
+      return (err && err.message) ? err.message : 'Authentication failed.';
+    }
+
+    // Sign the Firebase user out and return to the gate.
+    async function signOutOfFirebase() {
+      try { if (firebaseAuth) await firebaseAuth.signOut(); } catch (e) {}
+      firebaseAuthUser = null;
+    }
+
+    // ============================================================
+    // 👤 MEMBERSHIP + IDENTITY RESOLUTION
+    // Ties the authenticated Firebase user to a workspace membership
+    // (workspaces/<id>/_members/<uid>) and to an employee record.
+    // ============================================================
+
+    // Ensure the signed-in user is a member of the given workspace.
+    // Detection: a member can read workspaces/<id>/_meta; a non-member is
+    // denied. If not a member, prompt for the join code (validated by the
+    // DB rules on write). New workspaces get their first membership written
+    // at creation time (see writeWorkspaceMembership), so this path is only
+    // for joining workspaces that already exist.
+    // Returns true if membership is confirmed, false otherwise.
+    async function ensureWorkspaceMembership(wsId) {
+      if (!firebaseDB || !wsId || !firebaseAuthUser) return false;
+      const uid = firebaseAuthUser.uid;
+
+      // Probe: can I read this workspace's meta? If yes, I'm already a member.
+      try {
+        await firebaseDB.ref('workspaces/' + wsId + '/_meta').once('value');
+        try { await firebaseDB.ref('userWorkspaces/' + uid + '/' + wsId).set(true); } catch (e) {}
+        return true;
+      } catch (e) {
+        // Permission denied => not a member yet. Fall through to join.
+      }
+
+      // Join via workspace code (validated server-side by the rules).
+      const code = await promptJoinCode(wsId);
+      if (code === null) return false; // cancelled
+      try {
+        await firebaseDB.ref('workspaces/' + wsId + '/_members/' + uid).set({
+          role: 'user',
+          name: firebaseAuthUser.displayName || (firebaseAuthUser.email || '').split('@')[0],
+          email: firebaseAuthUser.email || '',
+          joinCode: code,
+          joinedAt: Date.now()
+        });
+        await firebaseDB.ref('userWorkspaces/' + uid + '/' + wsId).set(true);
+        return true;
+      } catch (e) {
+        showToast('Incorrect workspace code, or join was denied.', 'error');
+        return false;
+      }
+    }
+
+    // Write the signed-in user as a member of a workspace (used at creation
+    // time, where the creator becomes admin). Safe to call repeatedly.
+    async function writeWorkspaceMembership(wsId, role) {
+      if (!firebaseDB || !wsId || !firebaseAuthUser) return;
+      const uid = firebaseAuthUser.uid;
+      await firebaseDB.ref('workspaces/' + wsId + '/_members/' + uid).set({
+        role: role || 'admin',
+        name: firebaseAuthUser.displayName || (firebaseAuthUser.email || '').split('@')[0],
+        email: firebaseAuthUser.email || '',
+        joinedAt: Date.now()
+      });
+      try { await firebaseDB.ref('userWorkspaces/' + uid + '/' + wsId).set(true); } catch (e) {}
+    }
+
+    // Small modal that asks for the workspace join code. Resolves to the
+    // entered string, or null if cancelled.
+    function promptJoinCode(wsId) {
+      return new Promise((resolve) => {
+        const label = WORKSPACE_NAME || wsId || WORKSPACE_ID || 'this workspace';
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-[1000]';
+        modal.innerHTML = `
+          <div class="bg-white rounded-xl p-6 w-full max-w-sm mx-4 shadow-2xl">
+            <h2 class="text-lg font-bold text-gray-800 mb-1">Join workspace</h2>
+            <p class="text-sm text-gray-500 mb-4">Enter the code for <b>${escapeHtml(label)}</b> (ask your workspace admin).</p>
+            <input type="text" id="join-code-input" placeholder="Workspace code"
+                   class="w-full px-4 py-2.5 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-todoist-red mb-4">
+            <div class="flex gap-2">
+              <button id="join-cancel" class="flex-1 py-2.5 px-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+              <button id="join-ok" class="flex-1 py-2.5 px-4 bg-todoist-red text-white rounded-lg hover:bg-todoist-red-hover">Join</button>
+            </div>
+          </div>`;
+        document.body.appendChild(modal);
+        const input = modal.querySelector('#join-code-input');
+        input.focus();
+        const done = (val) => { modal.remove(); resolve(val); };
+        modal.querySelector('#join-cancel').onclick = () => done(null);
+        modal.querySelector('#join-ok').onclick = () => done(input.value.trim());
+        input.onkeydown = (e) => { if (e.key === 'Enter') done(input.value.trim()); };
+      });
+    }
+
+    // Resolve the local `currentUser` (employee record) from the signed-in
+    // Firebase identity, by matching email. Creates/links an employee if
+    // none exists yet, then logs in WITHOUT the old pick-a-name screen.
+    function resolveCurrentUserFromAuth() {
+      if (!firebaseAuthUser) { showUserSelectScreen(); return; }
+      const email = (firebaseAuthUser.email || '').toLowerCase();
+      state.employees = state.employees || [];
+
+      // Match by email, then by previously-linked auth uid.
+      let emp = state.employees.find(e => (e.email || '').toLowerCase() === email && email);
+      if (!emp) emp = state.employees.find(e => e.authUid === firebaseAuthUser.uid);
+
+      if (!emp) {
+        // No employee yet for this identity - create one.
+        const name = firebaseAuthUser.displayName || (email ? email.split('@')[0] : 'User');
+        const colors = ["#db4c3f", "#ff9933", "#14aaf5", "#7ecc49", "#884dff", "#eb4034", "#00bcd4", "#ff5722"];
+        const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        emp = {
+          id: 'emp_' + Date.now(),
+          name: name,
+          initials: initials,
+          color: colors[(state.employees.length) % colors.length],
+          email: email,
+          authUid: firebaseAuthUser.uid,
+          active: true
+        };
+        state.employees.push(emp);
+        saveState();
+      } else {
+        // Keep the link fresh.
+        let changed = false;
+        if (!emp.email && email) { emp.email = email; changed = true; }
+        if (emp.authUid !== firebaseAuthUser.uid) { emp.authUid = firebaseAuthUser.uid; changed = true; }
+        if (changed) saveState();
+      }
+
+      if (emp.active === false) {
+        showErrorScreen('Your account has been deactivated. Contact your workspace admin.');
+        return;
+      }
+      loginAsUser(emp.id);
+    }
+
     // Generate unique device ID (replaces Firebase UID)
     function getDeviceId() {
       let deviceId = localStorage.getItem('taskflow_device_id');
@@ -2542,8 +2841,24 @@ async function createFirebaseHistoryBackup() {
           createdAt: Date.now()
         });
         
-        // Create workspace with defaults
+        // Build the creator's admin membership so it is written ATOMICALLY
+        // with the new workspace (the create-time DB write rule covers it;
+        // others join later via the workspace code).
+        const creatorUid = firebaseAuthUser ? firebaseAuthUser.uid : null;
+        const members = {};
+        if (creatorUid) {
+          members[creatorUid] = {
+            role: 'admin',
+            name: (firebaseAuthUser.displayName) || (firebaseAuthUser.email || '').split('@')[0],
+            email: firebaseAuthUser.email || '',
+            joinedAt: Date.now()
+          };
+        }
+
+        // Create workspace with defaults (+ _meta + creator membership)
         await firebaseDB.ref(`workspaces/${workspaceId}`).set({
+          _meta: { name: name, createdAt: Date.now(), adminEmail: (firebaseAuthUser && firebaseAuthUser.email) || '' },
+          _members: members,
           tasks: [],
           projects: [
             { id: 'proj_work', name: 'Work', color: '#14aaf5' },
@@ -2557,7 +2872,12 @@ async function createFirebaseHistoryBackup() {
           notes: [],
           _lastUpdated: Date.now()
         });
-        
+
+        // Track in the creator's reverse index (best-effort).
+        if (creatorUid) {
+          try { await firebaseDB.ref('userWorkspaces/' + creatorUid + '/' + workspaceId).set(true); } catch (e) {}
+        }
+
         hideCreateWorkspaceModal();
         showToast('Workspace created!', 'success');
         
@@ -4592,7 +4912,10 @@ async function createFirebaseHistoryBackup() {
           <button onclick="setFilter('view','today')" data-nav="today" class="nav-item w-full flex items-center gap-3 px-3 py-2 hover:bg-sidebar-hover rounded-lg text-left">
             <i class="fas fa-calendar-day text-green-400 w-5"></i>
             <span>Today</span>
-            <span class="ml-auto text-xs text-gray-500" id="count-today">0</span>
+            <span class="ml-auto flex items-center gap-1">
+              <span id="badge-overdue" class="hidden text-[10px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full" title="Overdue tasks assigned to you">0</span>
+              <span class="text-xs text-gray-500" id="count-today">0</span>
+            </span>
           </button>
           <button onclick="setFilter('view','upcoming')" data-nav="upcoming" class="nav-item w-full flex items-center gap-3 px-3 py-2 hover:bg-sidebar-hover rounded-lg text-left">
             <i class="fas fa-calendar-alt text-purple-400 w-5"></i>
@@ -4758,6 +5081,9 @@ async function createFirebaseHistoryBackup() {
             <button onclick="showActivityModal()" class="p-2 text-gray-400 hover:text-purple-500 hover:bg-purple-50 rounded-lg transition-colors" title="Activity Log">
               <i class="fas fa-history"></i>
             </button>
+            <button onclick="showShortcutsModal()" class="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors" title="Keyboard shortcuts (?)">
+              <i class="fas fa-keyboard"></i>
+            </button>
 
             <div class="flex items-center gap-2">
               <div class="relative">
@@ -4891,7 +5217,7 @@ async function createFirebaseHistoryBackup() {
             <div id="inline-task-form" class="hidden border border-gray-200 rounded-xl p-4 bg-white shadow-sm">
               <div id="smart-tag-pills" class="smart-tag-pills"></div>
               <div class="relative">
-                <input type="text" id="inline-title" placeholder="Task name  •  @ person  # label  / project  ! priority  ^ date" class="w-full text-gray-800 placeholder-gray-400 outline-none text-base font-medium mb-2" oninput="handleSmartTagInput(event)" onkeydown="handleSmartTagKeydown(event)" autocomplete="off" />
+                <textarea id="inline-title" rows="1" dir="auto" placeholder="Task name  •  @ person  # label  / project  ! priority  ^ date" class="w-full text-gray-800 placeholder-gray-400 outline-none text-base font-medium mb-2 resize-none overflow-hidden leading-snug" oninput="autoGrowTextarea(this); handleSmartTagInput(event)" onkeydown="titleBoxKeydown(event, 'handleSmartTagKeydown', 'addTaskFromInline')" autocomplete="off"></textarea>
                 <div id="tag-suggestions" class="tag-suggestions" style="display: none;"></div>
               </div>
               <input type="text" id="inline-desc" placeholder="Description" class="w-full text-gray-600 placeholder-gray-400 outline-none text-sm mb-3" />
@@ -5062,83 +5388,8 @@ async function createFirebaseHistoryBackup() {
 
       <!-- Priority View -->
       <div id="priority-view" class="hidden flex-1 overflow-x-auto overflow-y-hidden p-4">
-        <div id="priority-columns" class="flex gap-4 h-full min-w-max">
-          <!-- Priority 1 - Urgent -->
-          <div class="priority-column w-80 bg-red-50 rounded-xl p-3 flex flex-col" data-priority="1"
-               ondragover="handlePriorityDragOver(event)"
-               ondrop="handlePriorityDrop(event, 1)"
-               ondragleave="handlePriorityDragLeave(event)">
-            <div class="flex items-center justify-between mb-3 px-1">
-              <div class="flex items-center gap-2">
-                <i class="fas fa-flag text-red-500"></i>
-                <h3 class="font-semibold text-red-700">Priority 1</h3>
-              </div>
-              <span class="text-xs bg-red-200 text-red-700 px-2 py-0.5 rounded-full" id="count-priority-1">0</span>
-            </div>
-            <div id="column-priority-1" class="flex-1 overflow-y-auto space-y-2"></div>
-            <button onclick="showAddTaskWithPriority(1)" class="mt-2 w-full flex items-center justify-center gap-2 py-2 text-sm text-red-400 hover:text-todoist-red hover:bg-white rounded-lg border-2 border-dashed border-red-300 hover:border-todoist-red transition-colors">
-              <i class="fas fa-plus text-xs"></i>
-              <span>Add task</span>
-            </button>
-          </div>
-
-          <!-- Priority 2 - High -->
-          <div class="priority-column w-80 bg-orange-50 rounded-xl p-3 flex flex-col" data-priority="2"
-               ondragover="handlePriorityDragOver(event)"
-               ondrop="handlePriorityDrop(event, 2)"
-               ondragleave="handlePriorityDragLeave(event)">
-            <div class="flex items-center justify-between mb-3 px-1">
-              <div class="flex items-center gap-2">
-                <i class="fas fa-flag text-orange-500"></i>
-                <h3 class="font-semibold text-orange-700">Priority 2</h3>
-              </div>
-              <span class="text-xs bg-orange-200 text-orange-700 px-2 py-0.5 rounded-full" id="count-priority-2">0</span>
-            </div>
-            <div id="column-priority-2" class="flex-1 overflow-y-auto space-y-2"></div>
-            <button onclick="showAddTaskWithPriority(2)" class="mt-2 w-full flex items-center justify-center gap-2 py-2 text-sm text-orange-400 hover:text-todoist-red hover:bg-white rounded-lg border-2 border-dashed border-orange-300 hover:border-todoist-red transition-colors">
-              <i class="fas fa-plus text-xs"></i>
-              <span>Add task</span>
-            </button>
-          </div>
-
-          <!-- Priority 3 - Medium -->
-          <div class="priority-column w-80 bg-blue-50 rounded-xl p-3 flex flex-col" data-priority="3"
-               ondragover="handlePriorityDragOver(event)"
-               ondrop="handlePriorityDrop(event, 3)"
-               ondragleave="handlePriorityDragLeave(event)">
-            <div class="flex items-center justify-between mb-3 px-1">
-              <div class="flex items-center gap-2">
-                <i class="fas fa-flag text-blue-500"></i>
-                <h3 class="font-semibold text-blue-700">Priority 3</h3>
-              </div>
-              <span class="text-xs bg-blue-200 text-blue-700 px-2 py-0.5 rounded-full" id="count-priority-3">0</span>
-            </div>
-            <div id="column-priority-3" class="flex-1 overflow-y-auto space-y-2"></div>
-            <button onclick="showAddTaskWithPriority(3)" class="mt-2 w-full flex items-center justify-center gap-2 py-2 text-sm text-blue-400 hover:text-todoist-red hover:bg-white rounded-lg border-2 border-dashed border-blue-300 hover:border-todoist-red transition-colors">
-              <i class="fas fa-plus text-xs"></i>
-              <span>Add task</span>
-            </button>
-          </div>
-
-          <!-- Priority 4 - Low -->
-          <div class="priority-column w-80 bg-gray-100 rounded-xl p-3 flex flex-col" data-priority="4"
-               ondragover="handlePriorityDragOver(event)"
-               ondrop="handlePriorityDrop(event, 4)"
-               ondragleave="handlePriorityDragLeave(event)">
-            <div class="flex items-center justify-between mb-3 px-1">
-              <div class="flex items-center gap-2">
-                <i class="fas fa-flag text-gray-400"></i>
-                <h3 class="font-semibold text-gray-600">Priority 4</h3>
-              </div>
-              <span class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full" id="count-priority-4">0</span>
-            </div>
-            <div id="column-priority-4" class="flex-1 overflow-y-auto space-y-2"></div>
-            <button onclick="showAddTaskWithPriority(4)" class="mt-2 w-full flex items-center justify-center gap-2 py-2 text-sm text-gray-400 hover:text-todoist-red hover:bg-white rounded-lg border-2 border-dashed border-gray-300 hover:border-todoist-red transition-colors">
-              <i class="fas fa-plus text-xs"></i>
-              <span>Add task</span>
-            </button>
-          </div>
-        </div>
+        <!-- Personal, customizable priority columns are rendered here by renderPriorityView() -->
+        <div id="priority-columns" class="flex gap-4 h-full min-w-max items-start"></div>
       </div>
 
       <!-- Supervisor View - Shows ALL tasks by employee (Admin only) -->
@@ -15669,6 +15920,35 @@ General,Trial Balance,12,,monthly,Journal Entries,,Generate trial balance,`;
         renderAll();
         showToast("Subtask added!", "success");
     }
+    // ============================================================
+    // TITLE INPUT HELPERS
+    // Make title fields auto-grow (wrap) so long / RTL titles are fully
+    // visible while typing, instead of scrolling sideways in one line.
+    // ============================================================
+
+    // Resize a <textarea> to fit its content.
+    function autoGrowTextarea(el) {
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = (el.scrollHeight) + 'px';
+    }
+
+    // Keydown wrapper for title boxes: lets the smart-tag handler run first
+    // (suggestion navigation / select), and otherwise blocks plain Enter so a
+    // title stays one logical line. Shift+Enter still inserts a newline.
+    function titleBoxKeydown(event, smartHandler, submitFn) {
+      if (typeof window[smartHandler] === 'function') {
+        window[smartHandler](event);
+      }
+      if (event.defaultPrevented) return; // smart-tag handler consumed it
+      if (event.key === 'Enter' && !event.shiftKey &&
+          !(typeof smartTagState !== 'undefined' && smartTagState && smartTagState.active)) {
+        event.preventDefault(); // no accidental newline in a title
+        // Plain Enter saves the task (Shift+Enter still adds a newline).
+        if (submitFn && typeof window[submitFn] === 'function') window[submitFn]();
+      }
+    }
+
         function generateExpandedSubtaskList(task) {
         if (!task.subtasks || task.subtasks.length === 0) return "";
         return `<div class="ml-10 mt-1 space-y-1 border-l-2 border-gray-100 pl-2">
@@ -15683,8 +15963,10 @@ General,Trial Balance,12,,monthly,Journal Entries,,Generate trial balance,`;
                     onchange="toggleNestedSubtask('${taskId}', '${st.id}'); event.stopPropagation();"
                     class="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-0 cursor-pointer">
                 
-                <span class="text-sm ${st.completed ? "line-through text-gray-400" : "text-gray-600"} flex-1 cursor-text"
-                      onclick="event.stopPropagation(); showEditTaskModal('${taskId}')">
+                <span class="text-sm ${st.completed ? "line-through text-gray-400" : "text-gray-600"} flex-1 cursor-text" dir="auto"
+                      title="Click to open · double-click to rename"
+                      onclick="event.stopPropagation(); subtaskTitleClick('${taskId}')"
+                      ondblclick="subtaskTitleDblClick(event, '${taskId}', '${st.id}', this)">
                     ${escapeHtml(st.title)}
                 </span>
 
@@ -15760,7 +16042,16 @@ General,Trial Balance,12,,monthly,Journal Entries,,Generate trial balance,`;
           showErrorScreen('Firebase connection failed. Please check your internet connection.');
           return;
         }
-        
+
+        // 🔐 Require authentication BEFORE any database access (only when the
+        // login gate is enabled). The database security rules deny all
+        // reads/writes to unauthenticated clients, so we must sign in first.
+        if (AUTH_ENABLED) {
+          hideLoadingScreen();
+          await ensureSignedIn();
+          showLoadingScreen('Signing in...');
+        }
+
         // Check if user is Super Admin
         showLoadingScreen('Checking access...');
         await checkSuperAdminStatus();
@@ -15783,6 +16074,18 @@ General,Trial Balance,12,,monthly,Journal Entries,,Generate trial balance,`;
         }
         
         if (workspaceFromUrl) {
+          // Ensure the signed-in user is a member of this workspace BEFORE
+          // we try to read it (DB rules deny reads to non-members).
+          if (AUTH_ENABLED) {
+            showLoadingScreen('Checking workspace access...');
+            const isMember = await ensureWorkspaceMembership(workspaceFromUrl);
+            if (!isMember) {
+              hideLoadingScreen();
+              showErrorScreen('You are not a member of this workspace. Ask the admin for the workspace code, or use the correct link.');
+              return;
+            }
+          }
+
           // User has workspace in URL - try to load it
           console.log('Loading workspace:', workspaceFromUrl);
           const workspaceExists = await loadWorkspace(workspaceFromUrl);
@@ -15847,9 +16150,15 @@ General,Trial Balance,12,,monthly,Journal Entries,,Generate trial balance,`;
         
         hideLoadingScreen();
 
-        // Always require user selection (do not remember last user)
+        // With the login gate ON, identity comes from the signed-in Firebase
+        // account (resolve/create the matching employee and log in directly).
+        // With it OFF, fall back to the original "pick your name" screen.
         clearRememberedUser();
-        showUserSelectScreen();
+        if (AUTH_ENABLED) {
+          resolveCurrentUserFromAuth();
+        } else {
+          showUserSelectScreen();
+        }
         setupAdminEasterEgg();
         
         initSettings();
@@ -15959,20 +16268,30 @@ General,Trial Balance,12,,monthly,Journal Entries,,Generate trial balance,`;
       
       try {
         const deviceId = getDeviceId();
-        
+
+        // Bind super-admin to this Firebase auth uid FIRST. The rules only
+        // allow setting _superadmin/uid while the node is empty, so this must
+        // happen before any other _superadmin write creates the node.
+        if (firebaseAuthUser) {
+          try { await firebaseDB.ref('_superadmin/uid').set(firebaseAuthUser.uid); } catch (e) { console.warn('Could not set _superadmin/uid (may already be seeded):', e.message); }
+        }
+
         // Save Super Admin status to Firebase
         await firebaseDB.ref('_superadmin/' + deviceId).set(true);
-        
+
         // Save Super Admin name
         await firebaseDB.ref('_superadmin/_info').set({
           name: name,
           createdAt: Date.now()
         });
-        
+
         isSuperAdmin = true;
         localStorage.setItem('taskflow_admin', 'true');
         localStorage.setItem('taskflow_superadmin_name', name);
-        
+
+        // Make the super admin a member (admin) of the il-team workspace.
+        await writeWorkspaceMembership('il-team', 'admin');
+
         // Update il-team meta
         await firebaseDB.ref('workspaces/il-team/_meta').update({
           name: 'IL Team',
@@ -16003,11 +16322,18 @@ General,Trial Balance,12,,monthly,Journal Entries,,Generate trial balance,`;
       if (!firebaseDB) return;
       
       try {
+        // Primary check: does the configured super-admin uid match me?
+        let uidMatch = false;
+        try {
+          const uidSnap = await firebaseDB.ref('_superadmin/uid').once('value');
+          uidMatch = !!firebaseAuthUser && uidSnap.exists() && uidSnap.val() === firebaseAuthUser.uid;
+        } catch (e) { /* ignore */ }
+
         const deviceId = getDeviceId();
         const snapshot = await firebaseDB.ref('_superadmin/' + deviceId).once('value');
-        isSuperAdmin = snapshot.exists() && snapshot.val() === true;
+        isSuperAdmin = uidMatch || (snapshot.exists() && snapshot.val() === true);
         superAdminChecked = true;
-        
+
         if (isSuperAdmin) {
           localStorage.setItem('taskflow_admin', 'true');
         }
@@ -16085,26 +16411,35 @@ General,Trial Balance,12,,monthly,Journal Entries,,Generate trial balance,`;
       
       try {
         const deviceId = getDeviceId();
-        
+
+        // Bind super-admin to this Firebase auth uid FIRST (rules only allow
+        // setting _superadmin/uid while the node is empty).
+        if (firebaseAuthUser) {
+          try { await firebaseDB.ref('_superadmin/uid').set(firebaseAuthUser.uid); } catch (e) { console.warn('Could not set _superadmin/uid (may already be seeded):', e.message); }
+        }
+
         // Save Super Admin status to Firebase
         await firebaseDB.ref('_superadmin/' + deviceId).set(true);
-        
+
         // Save Super Admin name
         await firebaseDB.ref('_superadmin/_info').set({
           name: name,
           createdAt: Date.now()
         });
-        
+
         isSuperAdmin = true;
         localStorage.setItem('taskflow_admin', 'true');
         localStorage.setItem('taskflow_superadmin_name', name);
-        
+
         // Remove setup screen
         document.getElementById('first-time-setup')?.remove();
-        
+
+        // Make the super admin an admin member of the il-team workspace.
+        await writeWorkspaceMembership('il-team', 'admin');
+
         // Check if il-team workspace exists (migrate existing data)
         const ilTeamSnapshot = await firebaseDB.ref('workspaces/il-team').once('value');
-        
+
         if (ilTeamSnapshot.exists()) {
           // Existing data - add meta info
           await firebaseDB.ref('workspaces/il-team/_meta').update({
@@ -20645,6 +20980,12 @@ General,Trial Balance,12,,monthly,Journal Entries,,Generate trial balance,`;
       document.getElementById("completed-list").innerHTML = completedTasks.map(t => renderCompletedRow(t)).join("");
       document.getElementById("completed-count").textContent = completedTasks.length;
       document.getElementById("completed-section").classList.toggle("hidden", completedTasks.length === 0);
+
+      // Keep the priority board in sync (e.g. when toggling selection mode,
+      // which only calls renderTasks) so its cards reflect selection state.
+      if (state.ui && state.ui.viewMode === 'priority' && typeof renderPriorityView === 'function') {
+        renderPriorityView();
+      }
     }
 
             function renderTaskRow(task, level, allTasks) {
@@ -21460,26 +21801,409 @@ function changeMonth(delta) {
     // PRIORITY VIEW FUNCTIONS
     // ============================================
     
+    // ============================================================
+    // 🗂️  PERSONAL PRIORITY BOARD
+    // Each user has their own columns (name/color/order) and their own
+    // placement of tasks into those columns. Stored on the user's employee
+    // record so it follows them across devices and is shown only to them.
+    // The board never changes a task's shared `priority` value.
+    // ============================================================
+    const PRIORITY_COLOR_PALETTE = ['#d1453b','#eb8909','#246fe0','#666666','#7ecc49','#884dff','#00bcd4','#ff5722','#e91e63','#0ea5e9'];
+    let _pendingPriorityColumn = null; // column to drop a newly-created task into
+    let _newColColor = '#7ecc49';
+
+    function defaultPriorityColumns() {
+      return [
+        { id: '1', name: 'Priority 1', color: '#d1453b' },
+        { id: '2', name: 'Priority 2', color: '#eb8909' },
+        { id: '3', name: 'Priority 3', color: '#246fe0' },
+        { id: '4', name: 'Priority 4', color: '#666666' }
+      ];
+    }
+
+    function getMyPriorityEmployee() {
+      const uid = getCurrentUserId();
+      if (!uid) return null;
+      return (state.employees || []).find(e => e.id === uid) || null;
+    }
+
+    // My ordered columns (seeded from the built-in Priority 1-4 on first use).
+    function getMyPriorityColumns() {
+      const emp = getMyPriorityEmployee();
+      if (!emp) return defaultPriorityColumns();
+      if (!Array.isArray(emp.priorityColumns) || emp.priorityColumns.length === 0) {
+        emp.priorityColumns = defaultPriorityColumns();
+      }
+      return emp.priorityColumns;
+    }
+
+    // My private task->column placements: { taskId: { col, order } }.
+    function getMyPlacements() {
+      const emp = getMyPriorityEmployee();
+      if (!emp) return {};
+      if (!emp.priorityPlacements || typeof emp.priorityPlacements !== 'object') {
+        emp.priorityPlacements = {};
+      }
+      return emp.priorityPlacements;
+    }
+
+    // Which of my columns a task sits in (falls back to its shared priority).
+    function getTaskColumnId(task) {
+      const cols = getMyPriorityColumns();
+      const placements = getMyPlacements();
+      const p = placements[task.id];
+      if (p && p.col && cols.some(c => c.id === p.col)) return p.col;
+      const byPriority = String(task.priority || 4);
+      if (cols.some(c => c.id === byPriority)) return byPriority;
+      return cols[0] ? cols[0].id : '4';
+    }
+
+    function getTaskColumnOrder(task) {
+      const p = getMyPlacements()[task.id];
+      return (p && typeof p.order === 'number') ? p.order : Number.MAX_SAFE_INTEGER;
+    }
+
+    function setTaskPlacement(taskId, colId, order) {
+      getMyPlacements()[taskId] = { col: colId, order: order };
+    }
+
     function renderPriorityView() {
-      const priorities = [1, 2, 3, 4];
+      const container = document.getElementById('priority-columns');
+      if (!container) return;
+      const cols = getMyPriorityColumns();
       const filtered = getFilteredTasks().filter(t => !t.parentId && t.status === 'open');
-      
-      priorities.forEach(priority => {
-        const tasks = filtered.filter(t => (t.priority || 4) === priority);
-        const container = document.getElementById('column-priority-' + priority);
-        const countEl = document.getElementById('count-priority-' + priority);
-        
-        if (container) {
-          container.innerHTML = tasks.length > 0 
-            ? tasks.map(t => renderPriorityCard(t)).join('')
-            : '<div class="text-xs text-gray-400 px-1 py-2 text-center">No tasks</div>';
-        }
-        if (countEl) {
-          countEl.textContent = tasks.length;
-        }
+
+      // Group my visible tasks into my columns.
+      const byCol = {};
+      cols.forEach(c => { byCol[c.id] = []; });
+      filtered.forEach(t => {
+        const cid = getTaskColumnId(t);
+        (byCol[cid] = byCol[cid] || []).push(t);
+      });
+      Object.keys(byCol).forEach(cid => byCol[cid].sort((a, b) => getTaskColumnOrder(a) - getTaskColumnOrder(b)));
+
+      container.innerHTML = cols.map(col => {
+        const tasks = byCol[col.id] || [];
+        const cardsHtml = tasks.length
+          ? tasks.map(t => renderPriorityCard(t)).join('')
+          : `<div class="text-xs text-gray-400 px-2 py-6 text-center">Drop tasks here</div>`;
+        return `
+          <div class="priority-column w-80 rounded-xl p-3 flex flex-col flex-shrink-0 self-stretch" data-col-id="${col.id}" style="background:${col.color}12;">
+            <div class="priority-col-header flex items-center justify-between mb-3 px-1 cursor-grab" title="Drag to reorder column">
+              <div class="flex items-center gap-2 min-w-0">
+                <i class="fas fa-flag flex-shrink-0" style="color:${col.color}"></i>
+                <h3 class="font-semibold truncate" style="color:${col.color}" ondblclick="startRenamePriorityColumn(event, '${col.id}', this)" title="Double-click to rename">${escapeHtml(col.name)}</h3>
+                <span class="text-xs px-2 py-0.5 rounded-full flex-shrink-0" style="background:${col.color}22;color:${col.color}">${tasks.length}</span>
+              </div>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <button onclick="event.stopPropagation(); openPriorityColumnColor('${col.id}')" class="text-gray-400 hover:text-gray-700 p-1" title="Change color"><i class="fas fa-palette text-xs"></i></button>
+                <button onclick="event.stopPropagation(); deletePriorityColumn('${col.id}')" class="text-gray-400 hover:text-red-500 p-1" title="Delete column"><i class="fas fa-trash text-xs"></i></button>
+              </div>
+            </div>
+            <div class="priority-col-body flex-1 overflow-y-auto space-y-2 min-h-[48px]" data-col-id="${col.id}">${cardsHtml}</div>
+            <button onclick="showAddTaskWithColumn('${col.id}')" class="mt-2 w-full flex items-center justify-center gap-2 py-2 text-sm text-gray-400 hover:text-todoist-red hover:bg-white rounded-lg border-2 border-dashed border-gray-300 hover:border-todoist-red transition-colors">
+              <i class="fas fa-plus text-xs"></i><span>Add task</span>
+            </button>
+          </div>`;
+      }).join('') + `
+        <div class="flex-shrink-0 w-64 pt-1">
+          <button onclick="addPriorityColumn()" class="w-full flex items-center justify-center gap-2 py-3 text-sm text-gray-400 hover:text-todoist-red hover:bg-white rounded-xl border-2 border-dashed border-gray-300 hover:border-todoist-red transition-colors" title="Add a new column">
+            <i class="fas fa-plus"></i><span>Add column</span>
+          </button>
+        </div>`;
+
+      initPrioritySortable();
+    }
+
+    // (Re)attach SortableJS after each render: one instance per column body for
+    // cards, plus one on the row for reordering columns by their headers.
+    let _prioritySortables = [];
+    let _priorityColSortable = null;
+    function initPrioritySortable() {
+      if (typeof Sortable === 'undefined') return;
+      _prioritySortables.forEach(s => { try { s.destroy(); } catch (e) {} });
+      _prioritySortables = [];
+      if (_priorityColSortable) { try { _priorityColSortable.destroy(); } catch (e) {} _priorityColSortable = null; }
+
+      document.querySelectorAll('#priority-columns .priority-col-body').forEach(body => {
+        _prioritySortables.push(new Sortable(body, {
+          group: 'priority-tasks',
+          animation: 150,
+          draggable: '.priority-card',
+          ghostClass: 'bg-blue-50',
+          onEnd: handlePrioritySortEnd
+        }));
+      });
+
+      const row = document.getElementById('priority-columns');
+      if (row) {
+        _priorityColSortable = new Sortable(row, {
+          group: 'priority-cols',
+          animation: 150,
+          draggable: '.priority-column',
+          handle: '.priority-col-header',
+          ghostClass: 'bg-blue-100',
+          onEnd: handlePriorityColumnSortEnd
+        });
+      }
+    }
+
+    // Card dragged/reordered: record my private placement (column + order) for
+    // the affected columns. Does NOT touch the task's shared priority.
+    function handlePrioritySortEnd(evt) {
+      const movedId = evt.item && evt.item.dataset ? evt.item.dataset.taskId : null;
+      if (!movedId) return;
+      const bodies = new Set();
+      if (evt.to) bodies.add(evt.to);
+      if (evt.from) bodies.add(evt.from);
+      bodies.forEach(body => {
+        const colId = body.getAttribute('data-col-id');
+        body.querySelectorAll('.priority-card').forEach((card, index) => {
+          setTaskPlacement(card.dataset.taskId, colId, index);
+        });
+      });
+      saveState();
+      setTimeout(renderPriorityView, 0); // defer so we don't destroy Sortable mid-event
+    }
+
+    // Column headers reordered: persist my column order.
+    function handlePriorityColumnSortEnd() {
+      const cols = getMyPriorityColumns();
+      const order = Array.from(document.querySelectorAll('#priority-columns .priority-column'))
+        .map(el => el.getAttribute('data-col-id'));
+      cols.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      saveState();
+      setTimeout(renderPriorityView, 0);
+    }
+
+    // ---- Column management ----
+    function addPriorityColumn() {
+      _newColColor = PRIORITY_COLOR_PALETTE[4];
+      const palette = PRIORITY_COLOR_PALETTE.map((c, i) =>
+        `<button type="button" onclick="_pickNewColColor('${c}', this)" class="w-8 h-8 rounded-full border-2 ${i === 4 ? 'border-gray-800' : 'border-transparent'}" style="background:${c}"></button>`
+      ).join('');
+      showModal(`<div class="p-6 w-full max-w-sm">
+        <h3 class="text-lg font-semibold mb-4">New column</h3>
+        <label class="block text-sm text-gray-600 mb-1">Name</label>
+        <input id="new-col-name" type="text" placeholder="e.g. Ideas" class="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4 outline-none focus:ring-2 focus:ring-todoist-red" onkeydown="if(event.key==='Enter')createPriorityColumn()">
+        <label class="block text-sm text-gray-600 mb-2">Color</label>
+        <div id="new-col-colors" class="flex flex-wrap gap-2 mb-4">${palette}</div>
+        <div class="flex justify-end gap-2">
+          <button onclick="closeModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+          <button onclick="createPriorityColumn()" class="px-4 py-2 bg-todoist-red text-white rounded-lg">Add</button>
+        </div>
+      </div>`);
+      setTimeout(() => document.getElementById('new-col-name')?.focus(), 50);
+    }
+    function _pickNewColColor(color, btn) {
+      _newColColor = color;
+      document.querySelectorAll('#new-col-colors button').forEach(b => b.classList.remove('border-gray-800'));
+      if (btn) btn.classList.add('border-gray-800');
+    }
+    function createPriorityColumn() {
+      const name = (document.getElementById('new-col-name')?.value || '').trim();
+      if (!name) { showToast('Enter a column name', 'error'); return; }
+      getMyPriorityColumns().push({ id: 'c_' + Date.now().toString(36), name, color: _newColColor || '#7ecc49' });
+      saveState();
+      closeModal();
+      renderPriorityView();
+      showToast('Column added');
+    }
+    function startRenamePriorityColumn(event, colId, el) {
+      event.stopPropagation();
+      const col = getMyPriorityColumns().find(c => c.id === colId);
+      if (!col) return;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = col.name;
+      input.className = 'font-semibold border border-blue-400 rounded px-1 outline-none min-w-0';
+      input.style.color = col.color;
+      input.onmousedown = e => e.stopPropagation();
+      el.replaceWith(input);
+      input.focus(); input.select();
+      let done = false;
+      const commit = (save) => {
+        if (done) return; done = true;
+        if (save) { const v = input.value.trim(); if (v) { col.name = v; saveState(); } }
+        renderPriorityView();
+      };
+      input.addEventListener('blur', () => commit(true));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
       });
     }
+    function openPriorityColumnColor(colId) {
+      const col = getMyPriorityColumns().find(c => c.id === colId);
+      if (!col) return;
+      const palette = PRIORITY_COLOR_PALETTE.map(c =>
+        `<button type="button" onclick="setPriorityColumnColor('${colId}','${c}')" class="w-8 h-8 rounded-full border-2 ${c === col.color ? 'border-gray-800' : 'border-transparent'}" style="background:${c}"></button>`
+      ).join('');
+      showModal(`<div class="p-6 w-full max-w-sm"><h3 class="text-lg font-semibold mb-4">Column color</h3><div class="flex flex-wrap gap-2 mb-4">${palette}</div><div class="flex justify-end"><button onclick="closeModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Close</button></div></div>`);
+    }
+    function setPriorityColumnColor(colId, color) {
+      const col = getMyPriorityColumns().find(c => c.id === colId);
+      if (col) { col.color = color; saveState(); }
+      closeModal();
+      renderPriorityView();
+    }
+    function deletePriorityColumn(colId) {
+      const cols = getMyPriorityColumns();
+      if (cols.length <= 1) { showToast('Keep at least one column', 'error'); return; }
+      const col = cols.find(c => c.id === colId);
+      const others = cols.filter(c => c.id !== colId);
+      const inCol = getFilteredTasks().filter(t => !t.parentId && t.status === 'open' && getTaskColumnId(t) === colId);
+      const opts = others.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      showModal(`<div class="p-6 w-full max-w-sm">
+        <h3 class="text-lg font-semibold mb-2">Delete "${escapeHtml(col ? col.name : '')}"?</h3>
+        <p class="text-sm text-gray-600 mb-4">${inCol.length} task(s) are in this column. Move them to:</p>
+        <select id="reassign-col" class="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4">${opts}</select>
+        <div class="flex justify-end gap-2">
+          <button onclick="closeModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+          <button onclick="confirmDeletePriorityColumn('${colId}')" class="px-4 py-2 bg-red-500 text-white rounded-lg">Delete</button>
+        </div>
+      </div>`);
+    }
+    function confirmDeletePriorityColumn(colId) {
+      const target = document.getElementById('reassign-col')?.value;
+      if (!target) { closeModal(); return; }
+      const cols = getMyPriorityColumns();
+      const placements = getMyPlacements();
+      // Move every task currently shown in this column to the target column.
+      getFilteredTasks().filter(t => !t.parentId && t.status === 'open' && getTaskColumnId(t) === colId)
+        .forEach(t => setTaskPlacement(t.id, target, Number.MAX_SAFE_INTEGER));
+      // Repoint any lingering explicit placements.
+      Object.keys(placements).forEach(tid => { if (placements[tid] && placements[tid].col === colId) placements[tid].col = target; });
+      const idx = cols.findIndex(c => c.id === colId);
+      if (idx >= 0) cols.splice(idx, 1);
+      saveState();
+      closeModal();
+      renderPriorityView();
+      showToast('Column deleted');
+    }
+
+    // Add task into a specific column (prefills priority for built-in columns).
+    function showAddTaskWithColumn(colId) {
+      const builtin = ['1', '2', '3', '4'].includes(String(colId)) ? parseInt(colId, 10) : null;
+      showQuickAddModal(builtin ? { priority: builtin, columnId: colId } : { columnId: colId });
+    }
     
+    // Single vs double click on a priority card title: single click opens the
+    // full editor (after a short delay), double click edits the title inline.
+    let _priorityTitleClickTimer = null;
+    function priorityTitleClick(taskId) {
+      if (_priorityTitleClickTimer) return; // a double-click is in progress
+      _priorityTitleClickTimer = setTimeout(() => {
+        _priorityTitleClickTimer = null;
+        showEditTaskModal(taskId);
+      }, 220);
+    }
+    function priorityTitleDblClick(event, taskId, el) {
+      if (_priorityTitleClickTimer) { clearTimeout(_priorityTitleClickTimer); _priorityTitleClickTimer = null; }
+      event.stopPropagation();
+      startInlinePriorityTitleEdit(taskId, el);
+    }
+
+    // Replace a card's title with an editable box; save on Enter/blur.
+    function startInlinePriorityTitleEdit(taskId, el) {
+      const task = state.tasks.find(t => t.id === taskId);
+      if (!task || !el) return;
+      const ta = document.createElement('textarea');
+      ta.value = task.title || '';
+      ta.dir = 'auto';
+      ta.rows = 1;
+      ta.className = 'w-full border border-blue-400 rounded px-2 py-1 text-sm font-medium outline-none resize-none overflow-hidden leading-snug';
+      el.replaceWith(ta);
+      autoGrowTextarea(ta);
+      ta.focus();
+      ta.select();
+      // Stop drags/clicks inside the editor from bubbling to the card/Sortable.
+      ta.addEventListener('mousedown', e => e.stopPropagation());
+      ta.addEventListener('click', e => e.stopPropagation());
+      ta.addEventListener('input', () => autoGrowTextarea(ta));
+      let done = false;
+      const commit = (save) => {
+        if (done) return; done = true;
+        if (save) {
+          const v = ta.value.trim();
+          if (v && v !== task.title) {
+            pushHistory();
+            task.title = v;
+            task.updatedAt = Date.now();
+            saveState();
+          }
+        }
+        renderPriorityView();
+      };
+      ta.addEventListener('blur', () => commit(true));
+      ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+      });
+    }
+
+    // Single vs double click on a subtask row: single opens the parent task,
+    // double edits the subtask title inline.
+    let _subtaskTitleClickTimer = null;
+    function subtaskTitleClick(taskId) {
+      if (_subtaskTitleClickTimer) return;
+      _subtaskTitleClickTimer = setTimeout(() => {
+        _subtaskTitleClickTimer = null;
+        showEditTaskModal(taskId);
+      }, 220);
+    }
+    function subtaskTitleDblClick(event, taskId, subId, el) {
+      if (_subtaskTitleClickTimer) { clearTimeout(_subtaskTitleClickTimer); _subtaskTitleClickTimer = null; }
+      event.stopPropagation();
+      startInlineSubtaskEdit(taskId, subId, el);
+    }
+
+    // Replace a subtask's text with an editable box; save on Enter/blur.
+    function startInlineSubtaskEdit(taskId, subId, el) {
+      const task = state.tasks.find(t => t.id === taskId);
+      if (!task || !el) return;
+      const node = findSubtaskNode(task.subtasks, subId);
+      if (!node) return;
+      const ta = document.createElement('textarea');
+      ta.value = node.title || '';
+      ta.dir = 'auto';
+      ta.rows = 1;
+      ta.className = 'flex-1 border border-blue-400 rounded px-2 py-0.5 text-sm outline-none resize-none overflow-hidden leading-snug';
+      el.replaceWith(ta);
+      autoGrowTextarea(ta);
+      ta.focus();
+      ta.select();
+      ta.addEventListener('mousedown', e => e.stopPropagation());
+      ta.addEventListener('click', e => e.stopPropagation());
+      ta.addEventListener('input', () => autoGrowTextarea(ta));
+      let done = false;
+      const commit = (save) => {
+        if (done) return; done = true;
+        if (save) {
+          const v = ta.value.trim();
+          if (v && v !== node.title) {
+            pushHistory();
+            node.title = v;
+            saveState();
+          }
+        }
+        renderPriorityView();
+      };
+      ta.addEventListener('blur', () => commit(true));
+      ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+      });
+    }
+
+    // Toggle the inline subtask list on a priority card (transient UI state).
+    function togglePriorityExpand(taskId) {
+      const task = state.tasks.find(t => t.id === taskId);
+      if (!task) return;
+      task.isExpanded = !task.isExpanded;
+      renderPriorityView();
+    }
+
     function renderPriorityCard(task) {
       // Only show visible project
       var proj = state.projects.find(p => p.id === task.projectId);
@@ -21507,23 +22231,26 @@ function changeMonth(delta) {
       }
       
       return `
-        <div class="priority-card bg-white rounded-lg shadow-sm p-3 border border-gray-200 hover:shadow-md ${highlightClass}"
-             draggable="true"
+        <div class="priority-card bg-white rounded-lg shadow-sm p-3 border border-gray-200 hover:shadow-md ${highlightClass} ${selectionMode && selectedTasks.has(task.id) ? 'ring-2 ring-blue-400' : ''}"
              data-task-id="${task.id}"
-             data-priority="${task.priority || 4}"
-             ondragstart="handlePriorityDragStart(event)"
-             ondragend="handlePriorityDragEnd(event)">
-          <div class="text-sm font-medium text-gray-800 mb-2 cursor-pointer hover:text-todoist-red" onclick="showEditTaskModal('${task.id}')">${escapeHtml(task.title)}</div>
-          
+             data-priority="${task.priority || 4}">
+          <div class="flex items-start gap-2 mb-2">
+            ${selectionMode ? `<input type="checkbox" ${selectedTasks.has(task.id) ? 'checked' : ''} onmousedown="event.stopPropagation()" onclick="event.stopPropagation()" onchange="toggleTaskSelection('${task.id}', this.checked); const c=this.closest('.priority-card'); c.classList.toggle('ring-2', this.checked); c.classList.toggle('ring-blue-400', this.checked);" class="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500 mt-0.5 flex-shrink-0 cursor-pointer">` : ''}
+            ${ckTotal > 0 ? `<button onclick="event.stopPropagation(); togglePriorityExpand('${task.id}')" class="text-gray-400 hover:text-todoist-red mt-0.5 flex-shrink-0" title="${task.isExpanded ? 'Hide' : 'Show'} subtasks"><i class="fas fa-chevron-${task.isExpanded ? 'down' : 'right'} text-xs"></i></button>` : ''}
+            <div class="text-sm font-medium text-gray-800 cursor-pointer hover:text-todoist-red flex-1 break-words" dir="auto" title="Click to open · double-click to rename" onclick="priorityTitleClick('${task.id}')" ondblclick="priorityTitleDblClick(event, '${task.id}', this)">${escapeHtml(task.title)}</div>
+          </div>
+
           ${labels.length ? `<div class="flex flex-wrap gap-1 mb-2">${labels.map(l => `<span class="label-pill" style="background:${l.color}20;color:${l.color}">${escapeHtml(l.name)}</span>`).join('')}</div>` : ''}
-          
+
           <div class="flex items-center gap-2 flex-wrap text-xs">
             ${dueDateHtml}
             ${proj ? `<span class="text-gray-500"><i class="fas fa-folder mr-1"></i>${escapeHtml(proj.name)}</span>` : ''}
             ${ckHtml}
             ${hasSubtasks ? `<span class="text-gray-500"><i class="fas fa-sitemap mr-1"></i>${doneSubtasks.length}/${subtasks.length}</span>` : ''}
           </div>
-          
+
+          ${task.isExpanded && ckTotal > 0 ? `<div class="mt-2 pt-2 border-t border-gray-100 space-y-1" onclick="event.stopPropagation()">${generateExpandedTree(task.subtasks, task.id)}</div>` : ''}
+
           <div class="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
             <div class="flex items-center gap-2">
               <button onclick="event.stopPropagation(); toggleComplete('${task.id}')" class="text-xs text-gray-500 hover:text-green-500" title="Complete"><i class="far fa-check-circle"></i></button>
@@ -21724,11 +22451,8 @@ function changeMonth(delta) {
     }
     
     function showAddTaskWithPriority(priority) {
-      showAddTaskModal();
-      setTimeout(() => {
-        const prioritySelect = document.getElementById('task-priority');
-        if (prioritySelect) prioritySelect.value = priority;
-      }, 100);
+      // Opens the quick-add modal with the priority pre-selected (editable).
+      showQuickAddModal({ priority: priority });
     }
     
     // Priority Drag & Drop
@@ -21866,9 +22590,17 @@ function handleLabelCardDragStart(e) {
 
       // Upcoming: visible tasks due in future
       document.getElementById("count-upcoming").textContent = visibleTasks.filter(t => t.dueDate && t.dueDate > today && t.status === "open").length;
-      
+
       // All: all visible open tasks
       document.getElementById("count-all").textContent = visibleTasks.filter(t => t.status === "open").length;
+
+      // Overdue: my visible open tasks whose due date is before today.
+      const overdue = visibleTasks.filter(t => t.status === "open" && t.dueDate && t.dueDate.split("T")[0] < today).length;
+      const overdueBadge = document.getElementById("badge-overdue");
+      if (overdueBadge) {
+        overdueBadge.textContent = overdue;
+        overdueBadge.classList.toggle("hidden", overdue === 0);
+      }
     }
 
     function updateViewMode() {
@@ -22382,7 +23114,11 @@ function handleLabelCardDragStart(e) {
     // Quick Add Modal - works from any view with pre-population
     function showQuickAddModal(options = {}) {
       const { labelId, assigneeId, boardStatus, dueDate } = options;
-      
+      const prefillPriority = String(options.priority || 4);
+      // Remember which personal-board column a new task should drop into
+      // (null unless opened via a column's "Add task"). Reset on every open.
+      _pendingPriorityColumn = options.columnId || null;
+
       // Reset smart tag state when opening modal
       resetSmartTagState();
       
@@ -22413,7 +23149,7 @@ function handleLabelCardDragStart(e) {
             <div>
               <div id="quick-smart-tag-pills" class="smart-tag-pills"></div>
               <div class="relative">
-                <input type="text" id="quick-title" placeholder="Task name  •  @ person  # label  / project  ! priority  ^ date" class="w-full text-lg border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-todoist-red" oninput="handleQuickSmartTagInput(event)" onkeydown="handleQuickSmartTagKeydown(event)" autocomplete="off" autofocus>
+                <textarea id="quick-title" rows="1" dir="auto" placeholder="Task name  •  @ person  # label  / project  ! priority  ^ date" class="w-full text-lg border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-todoist-red resize-none overflow-hidden leading-snug" oninput="autoGrowTextarea(this); handleQuickSmartTagInput(event)" onkeydown="titleBoxKeydown(event, 'handleQuickSmartTagKeydown', 'saveQuickAddTask')" autocomplete="off" autofocus></textarea>
                 <div id="quick-tag-suggestions" class="tag-suggestions" style="display: none;"></div>
               </div>
             </div>
@@ -22428,10 +23164,10 @@ function handleLabelCardDragStart(e) {
               <div>
                 <label class="block text-xs font-medium text-gray-500 mb-1">Priority</label>
                 <select id="quick-priority" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option value="4" selected>P4 - Low</option>
-                  <option value="3">P3 - Medium</option>
-                  <option value="2">P2 - High</option>
-                  <option value="1">P1 - Urgent</option>
+                  <option value="4" ${prefillPriority === '4' ? 'selected' : ''}>P4 - Low</option>
+                  <option value="3" ${prefillPriority === '3' ? 'selected' : ''}>P3 - Medium</option>
+                  <option value="2" ${prefillPriority === '2' ? 'selected' : ''}>P2 - High</option>
+                  <option value="1" ${prefillPriority === '1' ? 'selected' : ''}>P1 - Urgent</option>
                 </select>
               </div>
                             <div>
@@ -22535,6 +23271,12 @@ function handleLabelCardDragStart(e) {
         sortOrder: state.tasks.length,
         createdBy: getCurrentUserId()
       });
+
+      // If added from a personal-board column, drop it at the top of that column.
+      if (_pendingPriorityColumn) {
+        setTaskPlacement(taskId, _pendingPriorityColumn, -1);
+        _pendingPriorityColumn = null;
+      }
 
       // Log activity
       logActivity('created', taskId, title);
@@ -23120,7 +23862,7 @@ Notes: ${state.notes?.length || 0}`;
           <div class="space-y-4">
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
-              <input type="text" id="edit-title" value="${escapeHtml(task.title)}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-lg font-medium focus:ring-2 focus:ring-blue-500 outline-none">
+              <textarea id="edit-title" rows="1" dir="auto" oninput="autoGrowTextarea(this)" onkeydown="titleBoxKeydown(event)" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-lg font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none overflow-hidden leading-snug">${escapeHtml(task.title)}</textarea>
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Description (optional)</label>
@@ -23230,9 +23972,11 @@ Notes: ${state.notes?.length || 0}`;
             <button onclick="saveEditTask('${taskId}')" class="px-4 py-2 bg-todoist-red text-white rounded-lg hover:bg-todoist-red-hover font-medium">Save</button>
           </div>
         </div>`);
-        
+
       // Setup paste listener for this modal
       setupPasteListener(taskId);
+      // Size the title box to show the full (possibly long) title right away.
+      setTimeout(() => autoGrowTextarea(document.getElementById('edit-title')), 0);
     }
     
     // ========================================
